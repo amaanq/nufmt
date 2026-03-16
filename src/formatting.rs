@@ -99,6 +99,15 @@ impl<'a> Formatter<'a> {
         self.at_line_start = true;
     }
 
+    /// Get the length of the current line in the output buffer
+    fn current_line_len(&self) -> usize {
+        let last_newline = self.output.iter().rposition(|&b| b == b'\n');
+        match last_newline {
+            Some(pos) => self.output.len() - pos - 1,
+            None => self.output.len(),
+        }
+    }
+
     /// Write a space if not at line start and not already following whitespace/opener
     fn space(&mut self) {
         if !self.at_line_start && !self.output.is_empty() {
@@ -224,14 +233,43 @@ impl<'a> Formatter<'a> {
             })
     }
 
-    /// Format a pipeline
+    /// Format a pipeline, breaking across lines if it would exceed line_length.
+    ///
+    /// Formats inline first, then checks length. If too long, truncates back
+    /// and re-emits with line breaks. truncate() is O(1) so the rewind is cheap.
     fn format_pipeline(&mut self, pipeline: &Pipeline) {
-        for (i, element) in pipeline.elements.iter().enumerate() {
-            if i > 0 {
-                self.write(" | ");
+        if pipeline.elements.len() <= 1 {
+            for element in &pipeline.elements {
+                self.format_pipeline_element(element);
             }
+            return;
+        }
+
+        self.format_pipeline_element(&pipeline.elements[0]);
+
+        let snapshot_len = self.output.len();
+        let snapshot_at_line_start = self.at_line_start;
+
+        for element in &pipeline.elements[1..] {
+            self.write(" | ");
             self.format_pipeline_element(element);
         }
+
+        if self.current_line_len() <= self.config.line_length {
+            return;
+        }
+
+        // Too long — rewind and emit multi-line
+        self.output.truncate(snapshot_len);
+        self.at_line_start = snapshot_at_line_start;
+
+        self.indent_level += 1;
+        for element in &pipeline.elements[1..] {
+            self.newline();
+            self.write("| ");
+            self.format_pipeline_element(element);
+        }
+        self.indent_level -= 1;
     }
 
     /// Format a pipeline element
