@@ -217,7 +217,25 @@ impl<'a> Formatter<'a> {
             }
 
             if i < num_pipelines - 1 {
+                // Preserve blank lines from the original source
+                let next_pipeline = &block.pipelines[i + 1];
+                let gap_has_blank_line = if let (Some(last_elem), Some(next_first)) =
+                    (pipeline.elements.last(), next_pipeline.elements.first())
+                {
+                    let gap_start = self.get_element_end_pos(last_elem);
+                    let gap_end = next_first.expr.span.start;
+                    self.source[gap_start..gap_end]
+                        .iter()
+                        .filter(|&&b| b == b'\n')
+                        .count()
+                        > 1
+                } else {
+                    false
+                };
                 self.newline();
+                if gap_has_blank_line {
+                    self.newline();
+                }
             }
         }
     }
